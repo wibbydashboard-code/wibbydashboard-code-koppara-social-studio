@@ -1,0 +1,102 @@
+/*
+ * Tokens de diseño de Koppara Social Studio.
+ * Paleta PROVISIONAL (marfil cálido, verde profundo, salvia, terracota): la identidad visual
+ * real de Koppara no pudo confirmarse. Sustituir aquí cuando exista una guía de marca.
+ */
+:root {
+  /* Color: superficies */
+  --c-bg: #f6f2ea;
+  --c-surface: #fffdf8;
+  --c-surface-2: #f1ece2;
+  --c-surface-sunken: #ebe5d9;
+  --c-line: #e2dace;
+  --c-line-strong: #cbc1b0;
+
+  /* Color: texto */
+  --c-ink: #1c2520;
+  --c-ink-2: #46514a;
+  --c-ink-3: #5f6862;
+  --c-ink-inverse: #fbf8f2;
+
+  /* Color: marca provisional */
+  --c-green-900: #143628;
+  --c-green-700: #1f4d3a;
+  --c-green-600: #285e48;
+  --c-green-050: #e9efe7;
+  --c-sage-100: #e3eadf;
+  --c-sage-300: #b7c6b1;
+  --c-sage-500: #6f8a72;
+  --c-terra-700: #94401f;
+  --c-terra-600: #a8502f;
+  --c-terra-100: #f6e4da;
+
+  /* Color: estados */
+  --c-ok: #2c6a4c;
+  --c-ok-bg: #e2eee5;
+  --c-warn: #85540d;
+  --c-warn-bg: #f7ebd2;
+  --c-danger: #a3392a;
+  --c-danger-bg: #f8e2dc;
+  --c-info: #2c5a72;
+  --c-info-bg: #e0ebf1;
+  --c-demo: #6a4a8a;
+  --c-demo-bg: #efe8f5;
+
+  --c-focus: #2b6cb0;
+
+  /* Tipografía */
+  --font-display: 'Fraunces Variable', 'Iowan Old Style', Georgia, serif;
+  --font-ui: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-md: 0.9375rem;
+  --fs-lg: 1.0625rem;
+  --fs-xl: 1.375rem;
+  --fs-2xl: 1.75rem;
+  --fs-3xl: 2.125rem;
+  --lh-tight: 1.2;
+  --lh-body: 1.55;
+
+  /* Espaciado (base 4px) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+
+  /* Radios: discretos */
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* Sombras suaves */
+  --sh-1: 0 1px 2px rgb(28 37 32 / 0.06);
+  --sh-2: 0 1px 2px rgb(28 37 32 / 0.05), 0 6px 18px -8px rgb(28 37 32 / 0.16);
+  --sh-3: 0 18px 50px -18px rgb(28 37 32 / 0.35);
+
+  /* Controles */
+  --control-h: 40px;
+  --control-h-sm: 32px;
+
+  /* Movimiento */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --t-fast: 120ms;
+  --t-med: 220ms;
+
+  /* Layout */
+  --sidebar-w: 248px;
+  --content-max: 1180px;
+  --bottom-nav-h: 64px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-med: 0ms;
+  }
+}
