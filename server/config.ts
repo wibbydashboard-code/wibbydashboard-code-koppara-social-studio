@@ -12,7 +12,8 @@ if (fs.existsSync(envFile)) {
 
 export const config = {
   port: Number(process.env.PORT || 5173),
-  production: process.env.NODE_ENV === 'production',
+  // `--production` evita depender de la sintaxis de variables de entorno de cada sistema (Windows incluido).
+  production: process.env.NODE_ENV === 'production' || process.argv.includes('--production'),
   databasePath: path.resolve(process.env.DATABASE_PATH || './data/koppara.db'),
   uploadDir: path.resolve(process.env.UPLOAD_DIR || './data/uploads'),
   maxUploadMB: 512,

@@ -12,11 +12,14 @@ Herramienta interna para preparar, revisar y organizar contenido de redes social
 ## Instalar y arrancar
 
 ```bash
-cd koppara_social_studio
+cd wibbydashboard-code-koppara-social-studio
 npm install
-cp .env.example .env        # opcional: ajustar puerto, rutas o claves
 npm run dev                 # http://localhost:5173
 ```
+
+Opcional: copia `.env.example` a `.env` para ajustar puerto, rutas o claves (`cp` en Mac/Linux, `copy` en Windows).
+
+Los scripts funcionan igual en Windows (PowerShell o CMD), macOS y Linux.
 
 Producción local:
 
@@ -55,7 +58,7 @@ Nunca subas `.env` al repositorio.
 | `npm run typecheck` | Comprobación de tipos. |
 | `npm run db:reset` | Borra la base de datos y los archivos locales. |
 
-Las pruebas de navegador usan el Chromium de `/opt/pw-browsers` o la ruta de `CHROMIUM_PATH`.
+Las pruebas de navegador usan `CHROMIUM_PATH` si está definida; si no, el Chromium de Playwright (instálalo una vez con `npx playwright install chromium`).
 
 ## Documentación
 

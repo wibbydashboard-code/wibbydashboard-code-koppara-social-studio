@@ -8,10 +8,10 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "dev": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx watch --clear-screen=false --ignore 'web/**' server/index.ts",
+    "dev": "tsx watch --disable-warning=ExperimentalWarning --clear-screen=false --ignore \"web/**\" server/index.ts",
     "build": "vite build",
-    "start": "NODE_ENV=production NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx server/index.ts",
-    "db:reset": "tsx server/db/reset.ts",
+    "start": "tsx --disable-warning=ExperimentalWarning server/index.ts --production",
+    "db:reset": "tsx --disable-warning=ExperimentalWarning server/db/reset.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "tsx tests/e2e/flow.ts",
