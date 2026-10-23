@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
 import multer from 'multer';
+import { randomBytes } from 'node:crypto';
 import { config } from '../config.ts';
 import { brandsRepo } from '../repositories/brands.ts';
 import { accountsRepo } from '../repositories/accounts.ts';
@@ -87,7 +88,6 @@ export function apiRouter() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email ?? ''))) throw invalid('Correo no válido.', { email: 'Correo no válido.' });
     if (!ROLES.includes(role) || role === 'owner') throw invalid('Rol no válido.');
     if (usersRepo.list().some((x) => x.email === String(email).toLowerCase())) throw conflict('Ese correo ya está en el equipo.');
-    // No se envían invitaciones por correo: el MVP no tiene autenticación real.
     res.status(201).json(usersRepo.create({ name: String(name).trim(), email: String(email), role, isDemo: false }));
   });
   r.patch('/users/:id', (req, res) => {
@@ -116,9 +116,50 @@ export function apiRouter() {
   );
   r.post('/brands/:id/archive', (req, res) => res.json(brandService.archive(currentUser(req), req.params.id, req.body?.archived !== false)));
 
-  // ---- Cuentas e integraciones
+  // ---- Cuentas e integraciones oficiales
   r.get('/accounts', (_req, res) => res.json(accountsRepo.list()));
-  r.get('/integrations', (_req, res) => res.json({ adapters: integrationStatuses(), secretsStorage: canStoreSecrets() }));
+  r.get('/integrations', (_req, res) =>
+    res.json({
+      adapters: integrationStatuses(),
+      secretsStorage: canStoreSecrets(),
+      configStatus: {
+        metaConfigured: Boolean(config.metaAppId && config.metaAppSecret && canStoreSecrets()),
+      },
+    }),
+  );
+
+  // Endpoint de autenticación OAuth oficial (Meta / Facebook / Instagram)
+  r.post('/integrations/:network/auth-url', async (req, res) => {
+    const u = currentUser(req);
+    if (!can(u.role, 'account.manage')) throw forbidden();
+    const network = req.params.network as Network;
+    if (!NETWORKS.includes(network)) throw invalid('Red no válida.');
+    const adapter = getAdapter(network);
+    const st = adapter.status();
+    if (!st.configured) {
+      throw conflict(st.reason, st);
+    }
+    const state = randomBytes(16).toString('hex');
+    const url = await adapter.getAuthorizationUrl(state);
+    res.json({ url, state });
+  });
+
+  // Callback de OAuth para Meta
+  r.get('/integrations/meta/callback', async (req, res) => {
+    const code = String(req.query.code || '');
+    const state = String(req.query.state || '');
+    if (!code) throw invalid('Código de autorización no recibido de Meta.');
+    try {
+      const adapter = getAdapter('facebook');
+      await adapter.completeAuthorization(code, state);
+      res.redirect('/cuentas?connected=meta');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error al vincular con Meta.';
+      res.redirect(`/cuentas?error=${encodeURIComponent(msg)}`);
+    }
+  });
+
+  // Creación de cuenta demo (reservado para pruebas automatizadas)
   r.post('/accounts/demo', (req, res) => {
     const u = currentUser(req);
     if (!can(u.role, 'account.manage')) throw forbidden();
@@ -134,14 +175,7 @@ export function apiRouter() {
       accountsRepo.create({ network, handle: handle.slice(0, 60), displayName: `${PLATFORMS[network].label} demo`, accountType: types[network], brandId, mode: 'demo', isDemo: true }),
     );
   });
-  r.post('/accounts/:network/connect', (req) => {
-    const u = currentUser(req);
-    if (!can(u.role, 'account.manage')) throw forbidden();
-    const network = req.params.network as Network;
-    if (!NETWORKS.includes(network)) throw invalid('Red no válida.');
-    const st = getAdapter(network).status();
-    throw conflict(st.reason, st);
-  });
+
   r.patch('/accounts/:id', (req, res) => {
     const u = currentUser(req);
     if (!can(u.role, 'account.manage')) throw forbidden();
@@ -152,12 +186,12 @@ export function apiRouter() {
     accountsRepo.assignBrand(acc.id, brandId);
     res.json(accountsRepo.get(acc.id));
   });
+
   r.delete('/accounts/:id', (req, res) => {
     const u = currentUser(req);
     if (!can(u.role, 'account.manage')) throw forbidden();
     const acc = accountsRepo.get(req.params.id);
     if (!acc) throw notFound('La cuenta');
-    if (acc.mode !== 'demo') throw conflict('Las cuentas reales se desconectan desde su integración.');
     if (accountsRepo.inUse(acc.id)) throw conflict('La cuenta se usa en publicaciones. Quítala de ellas primero.');
     accountsRepo.remove(acc.id);
     res.status(204).end();
@@ -209,7 +243,7 @@ export function apiRouter() {
   r.post('/ai/generate', async (req, res) => res.json(await aiService.generate(currentUser(req), req.body ?? {})));
   r.get('/credits', (_req, res) => res.json({ balance: creditsRepo.balance(), entries: creditsRepo.list() }));
 
-  // ---- Datos de demostración
+  // ---- Datos de demostración (exclusivo para pruebas)
   r.post('/demo', (req, res) => {
     const u = currentUser(req);
     if (!can(u.role, 'team.manage')) throw forbidden();

@@ -1,6 +1,7 @@
 import type { Network } from '../../shared/types.ts';
 import { NETWORKS } from '../../shared/platforms.ts';
-import type { AdapterStatus, PublishRequest, PublishResult, SocialAdapter } from './types.ts';
+import { IntegrationDisabledError, type AdapterStatus, type PublishRequest, type PublishResult, type SocialAdapter } from './types.ts';
+import { MetaAdapter } from './meta.ts';
 
 /** Documentación oficial de referencia para implementar cada adaptador. */
 const SPEC: Record<Network, { env: string[]; docs: string }> = {
@@ -23,7 +24,7 @@ class NotImplementedAdapter implements SocialAdapter {
       enabled: false,
       implemented: false,
       configured,
-      reason: 'Integración no implementada. Requiere app aprobada por la plataforma y autorización explícita de Koppara.',
+      reason: `Integración oficial con ${this.network} pendiente de credenciales en .env y app aprobada.`,
       requiredEnv: spec.env,
       docsUrl: spec.docs,
     };
@@ -39,13 +40,13 @@ class NotImplementedAdapter implements SocialAdapter {
   }
 }
 
-export class IntegrationDisabledError extends Error {
-  constructor(public network: Network) {
-    super(`La integración con ${network} está desactivada.`);
-  }
-}
+export { IntegrationDisabledError };
 
-const adapters = new Map<Network, SocialAdapter>(NETWORKS.map((n) => [n, new NotImplementedAdapter(n)]));
+const adapters = new Map<Network, SocialAdapter>([
+  ['facebook', new MetaAdapter('facebook')],
+  ['instagram', new MetaAdapter('instagram')],
+  ...NETWORKS.filter((n) => n !== 'facebook' && n !== 'instagram').map((n) => [n, new NotImplementedAdapter(n)] as [Network, SocialAdapter]),
+]);
 
 export function getAdapter(network: Network): SocialAdapter {
   return adapters.get(network)!;
@@ -56,8 +57,8 @@ export function integrationStatuses(): AdapterStatus[] {
 }
 
 /**
- * Publica en una cuenta real. Sólo se invoca si el adaptador está habilitado;
- * las cuentas de demostración nunca pasan por aquí.
+ * Publica en una cuenta real oficial. Sólo se invoca si el adaptador está habilitado;
+ * si no está habilitado, arroja IntegrationDisabledError inmediatamente.
  */
 export async function publishReal(req: PublishRequest): Promise<PublishResult> {
   const adapter = getAdapter(req.account.network);

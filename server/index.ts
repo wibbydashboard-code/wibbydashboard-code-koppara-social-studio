@@ -5,6 +5,7 @@ import { config } from './config.ts';
 import { seedIfEmpty } from './db/seed.ts';
 import { apiRouter } from './http/routes.ts';
 import { AppError } from './http/errors.ts';
+import { startScheduler } from './services/scheduler.ts';
 
 seedIfEmpty();
 
@@ -45,4 +46,5 @@ if (config.production) {
 
 app.listen(config.port, () => {
   console.log(`Koppara Social Studio en http://localhost:${config.port}`);
+  startScheduler();
 });

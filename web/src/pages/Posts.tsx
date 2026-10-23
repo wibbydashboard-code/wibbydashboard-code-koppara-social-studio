@@ -98,7 +98,7 @@ export function PostsPage() {
                     <div className="row xs muted" style={{ marginTop: 4, gap: 6 }}>
                       <span>{brandName(p.brandId)}</span>
                       <span aria-hidden>·</span>
-                      <span>{fmtDateTime(p.plannedAt, s.settings.timezone)}</span>
+                      <span>{p.status === 'scheduled' ? 'Programada: ' : 'Prevista: '}{fmtDateTime(p.plannedAt, s.settings.timezone)}{p.status === 'draft' && ' (borrador sin programar)'}</span>
                       {p.tags.map((t) => <span key={t} className="badge badge--plain">#{t}</span>)}
                     </div>
                   </div>

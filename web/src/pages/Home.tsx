@@ -1,12 +1,9 @@
 import { Link } from 'react-router-dom';
-import { CalendarDays, Check, Image, Leaf, Link2, PenLine, FlaskConical, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { CalendarDays, Check, Image, Leaf, Link2, PenLine } from 'lucide-react';
 import { useApi } from '../lib/hooks.ts';
 import { useSession } from '../lib/session.tsx';
-import { api } from '../lib/api.ts';
-import { useToast } from '../lib/toast.tsx';
 import { fmtRelative } from '../lib/format.ts';
-import { Button, Confirm, DemoBadge, EmptyState, ErrorState, Loading, NetIcon, StatusBadge } from '../components/ui.tsx';
+import { ErrorState, Loading, NetIcon, StatusBadge } from '../components/ui.tsx';
 import type { Brand, Post, PostStatus } from '../../../shared/types.ts';
 
 interface Overview {
@@ -24,9 +21,7 @@ function greeting() {
 
 export function HomePage() {
   const s = useSession();
-  const toast = useToast();
   const { data, error, loading, reload } = useApi<Overview>('/overview');
-  const [confirmDemo, setConfirmDemo] = useState<'load' | 'remove' | null>(null);
 
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorState message={error?.message ?? ''} onRetry={reload} />;
@@ -34,8 +29,8 @@ export function HomePage() {
   const steps = [
     { done: data.setup.brandDraft, label: 'Crear el perfil de marca', to: '/marcas' },
     { done: data.setup.brand, label: 'Completar y activar la marca', to: '/marcas' },
-    { done: data.setup.account, label: 'Añadir una cuenta (simulada por ahora)', to: '/cuentas' },
-    { done: data.setup.accountAssigned, label: 'Asignar la cuenta a una marca', to: '/cuentas' },
+    { done: data.setup.account, label: 'Conectar cuenta oficial de Meta', to: '/cuentas' },
+    { done: data.setup.accountAssigned, label: 'Asignar la cuenta a Koppara', to: '/cuentas' },
     { done: data.setup.post, label: 'Redactar la primera publicación', to: '/crear' },
   ];
   const done = steps.filter((x) => x.done).length;
@@ -99,109 +94,57 @@ export function HomePage() {
             { to: '/calendario', icon: CalendarDays, title: 'Calendario', text: 'Lo previsto del mes.' },
             { to: '/media', icon: Image, title: 'Media', text: 'Imágenes y videos.' },
           ].map(({ to, icon: Icon, title, text }) => (
-            <Link key={to} to={to} className="card card--interactive">
-              <span className="quick__icon">
-                <Icon aria-hidden />
-              </span>
-              <strong>{title}</strong>
-              <span className="small muted">{text}</span>
+            <Link key={to} to={to} className="card card--interactive quick__item" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <Icon aria-hidden style={{ color: 'var(--c-sage-700)' }} />
+              <div>
+                <div style={{ fontWeight: 600 }}>{title}</div>
+                <div className="small muted">{text}</div>
+              </div>
             </Link>
           ))}
         </div>
       </section>
 
-      <section className="card" aria-labelledby="recent-title">
-        <div className="card__head">
-          <h2 id="recent-title">Publicaciones recientes</h2>
+      <section className="stack-sm" aria-labelledby="recent-title">
+        <div className="row-between">
+          <h2 id="recent-title">Actividad reciente</h2>
           <Link to="/publicaciones" className="small">
             Ver todas
           </Link>
         </div>
         {data.recent.length === 0 ? (
-          <EmptyState
-            compact
-            title="Aún no hay publicaciones"
-            action={
-              <Link to="/crear" className="btn btn--primary">
-                <PenLine aria-hidden /> Redactar la primera
-              </Link>
-            }
-          >
-            Empieza con un borrador: puedes guardarlo aunque falten destinos o medios.
-          </EmptyState>
+          <div className="card card__body small muted">Aún no hay publicaciones. Empieza redactando un borrador en Crear.</div>
         ) : (
           <div className="list">
             {data.recent.map((p) => (
               <Link key={p.id} to={`/publicaciones/${p.id}`} className="list-item">
                 <div className="grow">
                   <div className="list-item__title truncate">{p.internalTitle}</div>
-                  <div className="list-item__meta truncate">
-                    {brandName(p.brandId)} · actualizada {fmtRelative(p.updatedAt)}
+                  <div className="list-item__meta truncate">{p.baseText}</div>
+                  <div className="row xs muted" style={{ marginTop: 4 }}>
+                    <span>{brandName(p.brandId)}</span>
+                    <span aria-hidden>·</span>
+                    <span>{fmtRelative(p.updatedAt)}</span>
                   </div>
                 </div>
-                <div className="row" style={{ gap: 4 }}>
-                  {p.targets.slice(0, 4).map((t) => (
-                    <NetIcon key={t.id} network={t.network} size="sm" />
-                  ))}
+                <div className="stack-sm" style={{ alignItems: 'flex-end' }}>
+                  <StatusBadge status={p.status} simulated={p.simulated} />
+                  <div className="row" style={{ gap: 3 }}>
+                    {p.targets.map((t) => (
+                      <NetIcon key={t.id} network={t.network} size="sm" />
+                    ))}
+                  </div>
                 </div>
-                <StatusBadge status={p.status} simulated={p.simulated} />
-                {p.isDemo && <DemoBadge />}
               </Link>
             ))}
           </div>
         )}
       </section>
 
-      {s.can('team.manage') && (
-        <section className="card card__body row-between">
-          <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
-            <FlaskConical aria-hidden size={20} style={{ color: 'var(--c-demo)', flex: 'none', marginTop: 2 }} />
-            <div>
-              <strong>Datos de demostración</strong>
-              <p className="small muted">
-                Una marca ficticia, cuentas simuladas y publicaciones de ejemplo, todo etiquetado como “Demo”. No toca la ficha de Koppara.
-              </p>
-            </div>
-          </div>
-          {data.hasDemo ? (
-            <Button variant="danger" size="sm" icon={<Trash2 />} onClick={() => setConfirmDemo('remove')}>
-              Quitar demo
-            </Button>
-          ) : (
-            <Button size="sm" icon={<FlaskConical />} onClick={() => setConfirmDemo('load')}>
-              Cargar demo
-            </Button>
-          )}
-        </section>
-      )}
-
       {!data.setup.account && (
         <p className="small muted row">
-          <Link2 size={14} aria-hidden /> Las integraciones reales con redes sociales todavía no están activas.
+          <Link2 size={14} aria-hidden /> Cuentas oficiales de publicación pendientes de conectar en Cuentas.
         </p>
-      )}
-
-      {confirmDemo && (
-        <Confirm
-          title={confirmDemo === 'load' ? 'Cargar datos de demostración' : 'Quitar datos de demostración'}
-          confirmLabel={confirmDemo === 'load' ? 'Cargar' : 'Quitar'}
-          danger={confirmDemo === 'remove'}
-          onClose={() => setConfirmDemo(null)}
-          onConfirm={async () => {
-            try {
-              if (confirmDemo === 'load') await api.post('/demo');
-              else await api.del('/demo');
-              toast(confirmDemo === 'load' ? 'Datos de demostración cargados.' : 'Datos de demostración eliminados.');
-              await reload();
-            } catch (e) {
-              toast(e instanceof Error ? e.message : 'Error', 'error');
-            }
-          }}
-        >
-          {confirmDemo === 'load'
-            ? 'Se crearán una marca ficticia, tres cuentas simuladas y tres publicaciones de ejemplo. Nada se enviará a redes sociales.'
-            : 'Se eliminarán la marca ficticia, sus cuentas simuladas y sus publicaciones. Tus datos reales no se modifican.'}
-        </Confirm>
       )}
     </>
   );

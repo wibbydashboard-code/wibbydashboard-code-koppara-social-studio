@@ -10,6 +10,8 @@ if (fs.existsSync(envFile)) {
   }
 }
 
+const appUrl = process.env.APP_URL || 'http://localhost:5173';
+
 export const config = {
   port: Number(process.env.PORT || 5173),
   // `--production` evita depender de la sintaxis de variables de entorno de cada sistema (Windows incluido).
@@ -20,4 +22,9 @@ export const config = {
   encryptionKey: process.env.APP_ENCRYPTION_KEY || '',
   anthropicKey: process.env.ANTHROPIC_API_KEY || '',
   aiModel: process.env.AI_MODEL || 'claude-opus-5-5',
+  metaAppId: process.env.META_APP_ID || '',
+  metaAppSecret: process.env.META_APP_SECRET || '',
+  appUrl,
+  metaRedirectUri: process.env.META_REDIRECT_URI || `${appUrl}/api/integrations/meta/callback`,
+  metaGraphVersion: process.env.META_GRAPH_VERSION || 'v26.0',
 };

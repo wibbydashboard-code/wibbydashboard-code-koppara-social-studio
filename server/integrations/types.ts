@@ -35,3 +35,10 @@ export interface AdapterStatus {
   requiredEnv: string[];
   docsUrl: string;
 }
+
+export class IntegrationDisabledError extends Error {
+  constructor(public network: Network) {
+    super(`La integración con ${network} no está conectada o está desactivada.`);
+    this.name = 'IntegrationDisabledError';
+  }
+}

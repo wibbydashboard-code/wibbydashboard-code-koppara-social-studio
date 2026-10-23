@@ -54,7 +54,20 @@ export function PostDetailPage() {
             <div className="row" style={{ marginTop: 8 }}>
               <StatusBadge status={post.status} simulated={post.simulated} />
               {post.isDemo && <DemoBadge />}
-              <span className="small muted">{fmtDateTime(post.plannedAt, s.settings.timezone)}</span>
+              {post.plannedAt && (
+                <span className="small muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {post.status === 'scheduled' ? (
+                    <><strong>Programada para:</strong> {fmtDateTime(post.plannedAt, s.settings.timezone)}</>
+                  ) : (
+                    <>
+                      <span>Fecha prevista:</span> {fmtDateTime(post.plannedAt, s.settings.timezone)}
+                      <span className="badge badge--plain" style={{ fontSize: 'var(--fs-xs)', textTransform: 'none' }} title="Fecha tentativa para organizar el calendario. No es una programación activa ni se enviará automáticamente.">
+                        Borrador sin programar
+                      </span>
+                    </>
+                  )}
+                </span>
+              )}
             </div>
           </div>
           <div className="row">
@@ -71,6 +84,12 @@ export function PostDetailPage() {
           </div>
         </div>
       </div>
+
+      {post.status === 'draft' && post.plannedAt && (
+        <Notice kind="info" title="Borrador con fecha prevista editorial.">
+          Esta publicación tiene una fecha asignada sólo para organizar el calendario. <strong>No tiene una programación activa ni puede enviarse automáticamente</strong>. Toda publicación exige aprobación humana antes de programarse o emitirse.
+        </Notice>
+      )}
 
       {post.simulated && ['scheduled', 'published', 'failed'].includes(post.status) && (
         <Notice kind="demo" title="Estado simulado.">

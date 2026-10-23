@@ -1,16 +1,17 @@
 import { useState } from 'react';
-import { FlaskConical, Lock, Plus, Trash2, ExternalLink } from 'lucide-react';
+import { Lock, Trash2, ExternalLink, Link2, CheckCircle2 } from 'lucide-react';
 import { useApi } from '../lib/hooks.ts';
 import { useSession } from '../lib/session.tsx';
 import { api, ApiError } from '../lib/api.ts';
 import { useToast } from '../lib/toast.tsx';
-import { Button, Confirm, DemoBadge, ErrorState, Field, Loading, Modal, NetIcon, Notice, PageHeader } from '../components/ui.tsx';
+import { Button, Confirm, ErrorState, Loading, Modal, NetIcon, Notice, PageHeader } from '../components/ui.tsx';
 import { NETWORKS, PLATFORMS } from '../../../shared/platforms.ts';
 import type { Brand, Network, SocialAccount } from '../../../shared/types.ts';
 
 interface Integrations {
   adapters: { network: Network; enabled: boolean; implemented: boolean; configured: boolean; reason: string; requiredEnv: string[]; docsUrl: string }[];
   secretsStorage: boolean;
+  configStatus?: { metaConfigured: boolean };
 }
 
 export function AccountsPage() {
@@ -19,10 +20,7 @@ export function AccountsPage() {
   const accounts = useApi<SocialAccount[]>('/accounts');
   const brands = useApi<Brand[]>('/brands');
   const integ = useApi<Integrations>('/integrations');
-  const [adding, setAdding] = useState<Network | null>(null);
-  const [handle, setHandle] = useState('');
-  const [brandId, setBrandId] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [info, setInfo] = useState<Network | null>(null);
   const [removing, setRemoving] = useState<SocialAccount | null>(null);
   const manage = s.can('account.manage');
@@ -33,20 +31,38 @@ export function AccountsPage() {
   const byNet = (n: Network) => (accounts.data ?? []).filter((a) => a.network === n);
   const status = (n: Network) => integ.data?.adapters.find((a) => a.network === n);
 
+  async function handleConnectMeta() {
+    setConnecting(true);
+    try {
+      const res = await api.post<{ url: string }>('/integrations/facebook/auth-url');
+      if (res.url) {
+        window.location.href = res.url;
+      }
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'No se pudo iniciar la conexión con Meta.', 'error');
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
-        title="Cuentas"
-        description="Destinos donde se preparan publicaciones. Por ahora sólo hay cuentas simuladas: ninguna integración real está activa."
+        title="Cuentas oficiales"
+        description="Destinos de publicación para Koppara. Conecta las cuentas oficiales mediante Meta Graph API para publicar y programar directamente."
       />
-      <Notice kind="demo" title="Modo demostración.">
-        Las cuentas que añadas aquí son simuladas. No se conectan a ninguna red, no reciben publicaciones y siempre llevan la etiqueta “Simulada”.
+
+      <Notice kind="info" title="Conexión oficial de redes sociales.">
+        Para publicar en redes reales, cada plataforma requiere permisos y credenciales de aplicación oficiales. Las cuentas de Instagram y Facebook se conectan a través de Meta for Developers mediante OAuth seguro con cifrado AES-256-GCM. Si faltan credenciales en el entorno, la red permanece como <strong>Pendiente de conectar</strong>.
       </Notice>
 
       <div className="grid grid-auto">
         {NETWORKS.map((n) => {
           const p = PLATFORMS[n];
           const list = byNet(n);
+          const st = status(n);
+          const isMeta = n === 'facebook' || n === 'instagram';
+
           return (
             <article key={n} className="card" style={{ display: 'flex', flexDirection: 'column' }}>
               <div className="card__body stack-sm" style={{ flex: 1 }}>
@@ -58,9 +74,19 @@ export function AccountsPage() {
                       <span className="xs muted">{p.formats.map((f) => f.label).join(' · ')}</span>
                     </div>
                   </div>
-                  <span className="badge badge--plain" title={status(n)?.reason}>
-                    <Lock size={11} aria-hidden /> No conectada
-                  </span>
+                  {list.length > 0 ? (
+                    <span className="badge badge--active" title="Cuenta conectada">
+                      <CheckCircle2 size={11} aria-hidden /> Conectada
+                    </span>
+                  ) : st?.configured ? (
+                    <span className="badge badge--pending" title={st.reason}>
+                      Pendiente de conectar
+                    </span>
+                  ) : (
+                    <span className="badge badge--plain" title={st?.reason}>
+                      <Lock size={11} aria-hidden /> Pendiente de configurar
+                    </span>
+                  )}
                 </div>
 
                 {list.length > 0 ? (
@@ -73,8 +99,8 @@ export function AccountsPage() {
                             <div className="xs muted truncate">{a.accountType}</div>
                           </div>
                           <div className="row" style={{ flexWrap: 'nowrap', gap: 4 }}>
-                            <DemoBadge label="Simulada" />
-                            {manage && <Button size="sm" variant="ghost" aria-label={`Eliminar ${a.handle}`} icon={<Trash2 />} onClick={() => setRemoving(a)} />}
+                            <span className="badge badge--active">Oficial</span>
+                            {manage && <Button size="sm" variant="ghost" aria-label={`Desconectar ${a.handle}`} icon={<Trash2 />} onClick={() => setRemoving(a)} />}
                           </div>
                         </div>
                         <label className="xs muted" htmlFor={`brand-${a.id}`} style={{ display: 'block', marginTop: 8 }}>
@@ -105,17 +131,36 @@ export function AccountsPage() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="small muted">Sin cuentas todavía.</p>
+                  <p className="small muted">
+                    {isMeta
+                      ? st?.configured
+                        ? 'Credenciales de Meta configuradas. Pendiente de iniciar sesión con Meta para conectar la cuenta oficial.'
+                        : 'Faltan credenciales de Meta en el archivo .env.'
+                      : `Integración oficial con ${p.label} pendiente de credenciales en .env.`}
+                  </p>
                 )}
               </div>
+
               <div className="card__head" style={{ borderBottom: 0, borderTop: '1px solid var(--c-line)' }}>
                 <Button size="sm" variant="ghost" onClick={() => setInfo(n)}>
                   Requisitos
                 </Button>
-                {manage && (
-                  <Button size="sm" icon={<FlaskConical />} onClick={() => { setAdding(n); setHandle(''); setBrandId(brands.data?.[0]?.id ?? ''); }}>
-                    Añadir simulada
-                  </Button>
+                {manage && list.length === 0 && (
+                  isMeta ? (
+                    st?.configured ? (
+                      <Button size="sm" variant="primary" icon={<Link2 />} loading={connecting} onClick={handleConnectMeta}>
+                        Conectar con Meta
+                      </Button>
+                    ) : (
+                      <Button size="sm" icon={<Lock />} onClick={() => setInfo(n)}>
+                        Configurar en .env
+                      </Button>
+                    )
+                  ) : (
+                    <Button size="sm" disabled icon={<Lock />} title={st?.reason}>
+                      No configurada
+                    </Button>
+                  )
                 )}
               </div>
             </article>
@@ -123,95 +168,63 @@ export function AccountsPage() {
         })}
       </div>
 
-      {adding && (
-        <Modal
-          title={`Cuenta simulada de ${PLATFORMS[adding].label}`}
-          onClose={() => setAdding(null)}
-          footer={
-            <>
-              <Button onClick={() => setAdding(null)}>Cancelar</Button>
-              <Button
-                variant="primary"
-                icon={<Plus />}
-                loading={busy}
-                onClick={async () => {
-                  setBusy(true);
-                  try {
-                    await api.post('/accounts/demo', { network: adding, handle, brandId: brandId || null });
-                    toast('Cuenta simulada añadida.');
-                    setAdding(null);
-                    void accounts.reload();
-                  } catch (e) {
-                    toast(e instanceof ApiError ? e.message : 'Error', 'error');
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                Añadir
-              </Button>
-            </>
-          }
-        >
-          <Notice kind="demo">Sirve para practicar el flujo. No se pedirá ningún permiso a {PLATFORMS[adding].label} ni se enviará contenido.</Notice>
-          <Field label="Nombre de usuario de prueba" hint="Sólo para identificarla dentro de la app.">
-            {(fid, d) => <input id={fid} aria-describedby={d} className="input" value={handle} placeholder={`@demo.${adding}`} onChange={(e) => setHandle(e.target.value)} />}
-          </Field>
-          <Field label="Marca">
-            {(fid) => (
-              <select id={fid} className="select" value={brandId} onChange={(e) => setBrandId(e.target.value)}>
-                <option value="">Sin asignar</option>
-                {(brands.data ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            )}
-          </Field>
-        </Modal>
-      )}
-
       {info && (
-        <Modal title={`Requisitos de ${PLATFORMS[info].label}`} onClose={() => setInfo(null)} footer={<Button onClick={() => setInfo(null)}>Cerrar</Button>}>
-          <ul className="stack-sm" style={{ margin: 0, paddingLeft: 18 }}>
-            {PLATFORMS[info].requirements.map((r) => <li key={r}>{r}</li>)}
-          </ul>
-          <div className="stack-sm">
-            <strong className="small">Formatos y límites de referencia</strong>
-            <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
-              <li>Texto: hasta {PLATFORMS[info].textLimit.toLocaleString('es-MX')} caracteres{PLATFORMS[info].titleLimit ? `; título hasta ${PLATFORMS[info].titleLimit}` : ''}.</li>
-              {PLATFORMS[info].formats.map((f) => (
-                <li key={f.id}>
-                  {f.label}: {f.minMedia === f.maxMedia ? f.maxMedia : `${f.minMedia}–${f.maxMedia}`} archivo(s)
-                  {f.allowImages && f.allowVideo ? ', imagen o video' : f.allowVideo ? ', sólo video' : ', sólo imágenes'}
-                  {f.maxVideoSec ? `, video ≤ ${f.maxVideoSec} s` : ''}.
-                </li>
-              ))}
-            </ul>
-            <span className="xs muted">Valores de referencia: verifícalos con la documentación oficial al activar la integración.</span>
+        <Modal
+          title={`Requisitos oficiales: ${PLATFORMS[info].label}`}
+          onClose={() => setInfo(null)}
+          footer={<Button onClick={() => setInfo(null)}>Entendido</Button>}
+        >
+          <div className="stack">
+            <p className="small">
+              Para vincular <strong>{PLATFORMS[info].label}</strong> con Koppara Social Studio y publicar contenido real, se requiere configurar las credenciales oficiales de la plataforma:
+            </p>
+
+            <div className="card card__body" style={{ background: 'var(--c-surface-2)' }}>
+              <strong>Variables en archivo .env:</strong>
+              <ul style={{ margin: '8px 0 0 16px', fontSize: 'var(--fs-sm)' }}>
+                {status(info)?.requiredEnv.map((v) => (
+                  <li key={v}><code>{v}</code></li>
+                ))}
+              </ul>
+            </div>
+
+            <p className="small muted">
+              {status(info)?.reason}
+            </p>
+
+            {status(info)?.docsUrl && (
+              <a
+                href={status(info)!.docsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn--ghost small row"
+                style={{ alignSelf: 'flex-start', textDecoration: 'none', gap: 6 }}
+              >
+                <span>Documentación oficial de {PLATFORMS[info].label}</span>
+                <ExternalLink size={14} aria-hidden />
+              </a>
+            )}
           </div>
-          <Notice kind="warn" title="Integración real pendiente.">
-            {status(info)?.reason} Variables necesarias: <code>{status(info)?.requiredEnv.join(', ')}</code>.
-          </Notice>
-          {status(info)?.docsUrl && (
-            <a href={status(info)!.docsUrl} target="_blank" rel="noreferrer noopener" className="small row" style={{ gap: 4 }}>
-              Documentación oficial <ExternalLink size={13} aria-hidden />
-            </a>
-          )}
-          <Button disabled icon={<Lock />} title="Desactivado hasta implementar y autorizar la integración">
-            Conectar con {PLATFORMS[info].label} (no disponible)
-          </Button>
         </Modal>
       )}
 
       {removing && (
-        <Confirm title="Eliminar cuenta simulada" confirmLabel="Eliminar" danger onClose={() => setRemoving(null)} onConfirm={async () => {
-          try {
-            await api.del(`/accounts/${removing.id}`);
-            toast('Cuenta eliminada.');
-            void accounts.reload();
-          } catch (e) {
-            toast(e instanceof ApiError ? e.message : 'Error', 'error');
-          }
-        }}>
-          Se eliminará {removing.handle}. No afecta a ninguna cuenta real.
+        <Confirm
+          title="Desconectar cuenta"
+          confirmLabel="Desconectar"
+          danger
+          onClose={() => setRemoving(null)}
+          onConfirm={async () => {
+            try {
+              await api.del(`/accounts/${removing.id}`);
+              toast('Cuenta desconectada.');
+              void accounts.reload();
+            } catch (e) {
+              toast(e instanceof ApiError ? e.message : 'Error al desconectar', 'error');
+            }
+          }}
+        >
+          Se desconectará la cuenta <strong>{removing.handle}</strong> de Koppara Social Studio. Para volver a publicar en ella, deberás realizar nuevamente el flujo de conexión.
         </Confirm>
       )}
     </>

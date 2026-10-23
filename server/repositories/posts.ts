@@ -1,4 +1,5 @@
 import { db, json, newId, now } from '../db/database.ts';
+import { accountsRepo } from './accounts.ts';
 import type { Network, Post, PostEvent, PostStatus, PostTarget, TargetStatus, TikTokOptions } from '../../shared/types.ts';
 
 function toTarget(r: Record<string, unknown>): PostTarget {
@@ -50,16 +51,24 @@ function targetsFor(postId: string): PostTarget[] {
 function writeTargets(postId: string, targets: PostInput['targets']) {
   db.prepare('DELETE FROM post_targets WHERE post_id = ?').run(postId);
   const ins = db.prepare(
-    'INSERT INTO post_targets (id, post_id, account_id, network, format, text, tiktok, status, position) VALUES (?,?,?,?,?,?,?,?,?)',
+    'INSERT INTO post_targets (id, post_id, account_id, network, format, text, tiktok, status, position, simulated) VALUES (?,?,?,?,?,?,?,?,?,?)',
   );
-  targets.forEach((t, i) =>
-    ins.run(newId(), postId, t.accountId, t.network, t.format, t.text, t.tiktok ? JSON.stringify(t.tiktok) : null, 'pending', i),
-  );
+  targets.forEach((t, i) => {
+    const acc = accountsRepo.get(t.accountId);
+    const isSimulated = acc?.mode === 'demo' ? 1 : 0;
+    ins.run(newId(), postId, t.accountId, t.network, t.format, t.text, t.tiktok ? JSON.stringify(t.tiktok) : null, 'pending', i, isSimulated);
+  });
 }
 
 export const postsRepo = {
   list(): Post[] {
     const rows = db.prepare('SELECT * FROM posts ORDER BY updated_at DESC').all() as Record<string, unknown>[];
+    return rows.map((r) => toPost(r, targetsFor(String(r.id))));
+  },
+  listDueScheduled(): Post[] {
+    const rows = db
+      .prepare("SELECT * FROM posts WHERE status = 'scheduled' AND planned_at IS NOT NULL AND planned_at <= ? ORDER BY planned_at ASC")
+      .all(now()) as Record<string, unknown>[];
     return rows.map((r) => toPost(r, targetsFor(String(r.id))));
   },
   get(id: string): Post | null {

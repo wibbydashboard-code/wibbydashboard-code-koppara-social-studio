@@ -258,7 +258,7 @@ export function PostEditorPage() {
                 </div>
               </div>
 
-              <Field label={`Fecha prevista (${tz})`} hint="Opcional en borradores; aparece en el calendario. Programar exige aprobación.">
+              <Field label={`Fecha prevista (${tz})`} hint="Fecha editorial para organizar el calendario. Los borradores no tienen programación activa ni se envían automáticamente. Programar exige aprobación previa.">
                 {(fid, desc) => <input id={fid} aria-describedby={desc} type="datetime-local" className="input" style={{ maxWidth: 280 }} value={d.plannedLocal} onChange={(e) => update({ plannedLocal: e.target.value })} />}
               </Field>
             </fieldset>
@@ -272,8 +272,8 @@ export function PostEditorPage() {
             </div>
             <div className="card__body stack">
               {brandAccounts.length + otherAccounts.length === 0 ? (
-                <EmptyState compact title="No hay cuentas" action={<Link to="/cuentas" className="btn">Añadir cuenta simulada</Link>}>
-                  Añade una cuenta simulada para practicar la selección de destinos.
+                <EmptyState compact title="No hay cuentas conectadas" action={<Link to="/cuentas" className="btn btn--primary">Conectar cuenta oficial</Link>}>
+                  Conecta una cuenta oficial de Instagram o Facebook para seleccionar destinos de publicación.
                 </EmptyState>
               ) : (
                 <>
