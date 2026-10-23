@@ -7,6 +7,11 @@ import { getAdapter, publishReal, IntegrationDisabledError } from '../../server/
 import { oauthStateManager } from '../../server/security/oauthState.ts';
 import { MetaAdapter } from '../../server/integrations/meta.ts';
 import { canStoreSecrets } from '../../server/security/crypto.ts';
+import { brandsRepo } from '../../server/repositories/brands.ts';
+import { accountsRepo } from '../../server/repositories/accounts.ts';
+import { db } from '../../server/db/database.ts';
+import { postService } from '../../server/services/posts.ts';
+import { canAddBrand, WORKSPACE_PLANS } from '../../shared/plans.ts';
 import type { MediaItem } from '../../shared/types.ts';
 
 const img = (w: number, h: number, extra: Partial<MediaItem> = {}): MediaItem => ({
@@ -193,5 +198,121 @@ describe('seguridad OAuth Meta y protección de credenciales', () => {
       text: 'Prueba',
       media: [],
     })).rejects.toThrow(IntegrationDisabledError);
+  });
+});
+
+describe('arquitectura multimarca y aislamiento estricto de información', () => {
+  it('estructura de planes lista para cuotas sin bloquear múltiples marcas en el MVP', () => {
+    // Por defecto en Agency (MVP) permite marcas ilimitadas
+    expect(canAddBrand(10, 'agency').allowed).toBe(true);
+    expect(WORKSPACE_PLANS.agency.maxBrands).toBe(-1);
+
+    // Preparado para planes futuros con límites
+    expect(canAddBrand(2, 'starter').allowed).toBe(true);
+    expect(canAddBrand(3, 'starter').allowed).toBe(false);
+    expect(canAddBrand(3, 'starter').reason).toContain('límite de 3 marcas');
+  });
+
+  it('impide que una publicación se dirija a una cuenta de otra marca o no asignada', () => {
+    // Crear dos marcas distintas
+    const brandA = brandsRepo.create({
+      name: 'Marca A Test',
+      description: 'Descripción A',
+      audience: 'Audiencia A',
+      tone: 'Tono A',
+      personality: 'Personalidad A',
+      language: 'Español',
+      alwaysRules: [],
+      neverRules: [],
+      bannedWords: [],
+      pillars: ['Pilar A'],
+      knowledge: '',
+      kit: { logoMediaId: null, primaryColor: '#111111', palette: [], fonts: ['Inter'], referenceMediaIds: [] },
+    }, 'active', true);
+
+    const brandB = brandsRepo.create({
+      name: 'Marca B Test',
+      description: 'Descripción B',
+      audience: 'Audiencia B',
+      tone: 'Tono B',
+      personality: 'Personalidad B',
+      language: 'Español',
+      alwaysRules: [],
+      neverRules: [],
+      bannedWords: [],
+      pillars: ['Pilar B'],
+      kit: { logoMediaId: null, primaryColor: '#222222', palette: [], fonts: ['Fraunces'], referenceMediaIds: [] },
+    }, 'active', true);
+
+    // Cuentas asignadas a Brand A, Brand B y sin asignar
+    const accA = accountsRepo.create({
+      network: 'facebook',
+      handle: 'cuenta.marca.a',
+      displayName: 'Cuenta Marca A',
+      accountType: 'Página',
+      brandId: brandA.id,
+      mode: 'demo',
+      isDemo: true,
+    });
+
+    const accB = accountsRepo.create({
+      network: 'instagram',
+      handle: '@cuenta.marca.b',
+      displayName: 'Cuenta Marca B',
+      accountType: 'Instagram',
+      brandId: brandB.id,
+      mode: 'demo',
+      isDemo: true,
+    });
+
+    const accUnassigned = accountsRepo.create({
+      network: 'facebook',
+      handle: 'cuenta.sin.marca',
+      displayName: 'Cuenta Sin Marca',
+      accountType: 'Página',
+      brandId: null,
+      mode: 'demo',
+      isDemo: true,
+    });
+
+    const testUser = { id: 'user_tester', role: 'owner', name: 'Tester', email: 't@test.com' } as any;
+
+    // Intento 1: Post de Brand A apuntando a cuenta de Brand B -> DEBE FALLAR
+    expect(() => {
+      postService.create(testUser, {
+        brandId: brandA.id,
+        internalTitle: 'Intento cruzado de marca',
+        baseText: 'Texto de prueba',
+        targets: [{ accountId: accB.id, network: 'instagram', format: 'post', text: null, tiktok: null }],
+      });
+    }).toThrow(/no está asignada a la marca/);
+
+    // Intento 2: Post de Brand A apuntando a cuenta sin asignar -> DEBE FALLAR
+    expect(() => {
+      postService.create(testUser, {
+        brandId: brandA.id,
+        internalTitle: 'Intento con cuenta sin asignar',
+        baseText: 'Texto de prueba',
+        targets: [{ accountId: accUnassigned.id, network: 'facebook', format: 'post', text: null, tiktok: null }],
+      });
+    }).toThrow(/no está asignada a la marca/);
+
+    // Intento 3: Post de Brand A apuntando estrictamente a cuenta de Brand A -> DEBE TENER ÉXITO
+    const okPost = postService.create(testUser, {
+      brandId: brandA.id,
+      internalTitle: 'Post legítimo de Marca A',
+      baseText: 'Texto de prueba de la marca A',
+      targets: [{ accountId: accA.id, network: 'facebook', format: 'post', text: null, tiktok: null }],
+    });
+    expect(okPost.id).toBeDefined();
+    expect(okPost.brandId).toBe(brandA.id);
+    expect(okPost.targets[0].accountId).toBe(accA.id);
+
+    // Limpieza de datos de prueba
+    postService.remove(testUser, okPost.id);
+    accountsRepo.remove(accA.id);
+    accountsRepo.remove(accB.id);
+    accountsRepo.remove(accUnassigned.id);
+    db.prepare('DELETE FROM brands WHERE id IN (?, ?)').run(brandA.id, brandB.id);
   });
 });

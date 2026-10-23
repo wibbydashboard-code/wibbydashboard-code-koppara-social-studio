@@ -57,7 +57,7 @@ export function MediaPicker({
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const toast = useToast();
-  const items = (data ?? []).filter((m) => !onlyImages || m.kind === 'image');
+  const items = (data ?? []).filter((m) => (!onlyImages || m.kind === 'image') && (!brandId || m.brandId === brandId));
 
   const toggle = (id: string) =>
     setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : max === 1 ? [id] : max && s.length >= max ? s : [...s, id]));

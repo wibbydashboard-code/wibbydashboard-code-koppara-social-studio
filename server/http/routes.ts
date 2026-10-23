@@ -198,7 +198,11 @@ export function apiRouter() {
   });
 
   // ---- Media
-  r.get('/media', (_req, res) => res.json(mediaRepo.list()));
+  r.get('/media', (req, res) => {
+    const brandId = req.query.brandId ? String(req.query.brandId) : undefined;
+    const all = mediaRepo.list();
+    res.json(brandId ? all.filter((m) => m.brandId === brandId) : all);
+  });
   r.post('/media', upload.single('file'), (req, res) => {
     if (!req.file) throw invalid('Adjunta un archivo.');
     const num = (v: unknown) => (v === undefined || v === '' ? null : Number(v));
@@ -218,7 +222,11 @@ export function apiRouter() {
   });
 
   // ---- Publicaciones
-  r.get('/posts', (_req, res) => res.json(postsRepo.list()));
+  r.get('/posts', (req, res) => {
+    const brandId = req.query.brandId ? String(req.query.brandId) : undefined;
+    const all = postsRepo.list();
+    res.json(brandId ? all.filter((p) => p.brandId === brandId) : all);
+  });
   r.get('/posts/:id', (req, res) => {
     const p = postsRepo.get(req.params.id);
     if (!p) throw notFound('La publicación');

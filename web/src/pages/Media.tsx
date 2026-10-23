@@ -8,7 +8,7 @@ import { bytes } from '../lib/format.ts';
 import { Button, Confirm, EmptyState, ErrorState, NetIcon, PageHeader, Segmented } from '../components/ui.tsx';
 import { MediaThumb, uploadFile } from '../components/MediaPicker.tsx';
 import { NETWORKS, PLATFORMS } from '../../../shared/platforms.ts';
-import type { MediaItem, Network } from '../../../shared/types.ts';
+import type { Brand, MediaItem, Network } from '../../../shared/types.ts';
 
 /** Redes y formatos donde un archivo cumple tipo, tamaño, proporción y duración. */
 function fits(m: MediaItem): Network[] {
@@ -33,6 +33,8 @@ export function MediaPage() {
   const s = useSession();
   const toast = useToast();
   const { data, error, loading, reload } = useApi<MediaItem[]>('/media');
+  const brands = useApi<Brand[]>('/brands?archived=1');
+  const [brandId, setBrandId] = useState<string>('');
   const [kind, setKind] = useState<'all' | 'image' | 'video' | 'mockup'>('all');
   const [busy, setBusy] = useState(0);
   const [over, setOver] = useState(false);
@@ -46,7 +48,7 @@ export function MediaPage() {
     let ok = 0;
     for (const f of arr) {
       try {
-        await uploadFile(f);
+        await uploadFile(f, brandId ? { brandId } : {});
         ok++;
       } catch (e) {
         toast(`${f.name}: ${e instanceof ApiError ? e.message : 'no se pudo subir'}`, 'error');
@@ -58,7 +60,7 @@ export function MediaPage() {
     void reload();
   }
 
-  const list = (data ?? []).filter((m) => (kind === 'all' ? true : kind === 'mockup' ? m.isMockup : m.kind === kind));
+  const list = (data ?? []).filter((m) => (kind === 'all' ? true : kind === 'mockup' ? m.isMockup : m.kind === kind) && (!brandId || m.brandId === brandId));
 
   return (
     <>
@@ -82,7 +84,16 @@ export function MediaPage() {
         </div>
       )}
 
-      <Segmented label="Tipo" value={kind} onChange={setKind} options={[{ id: 'all', label: 'Todo' }, { id: 'image', label: 'Imágenes' }, { id: 'video', label: 'Videos' }, { id: 'mockup', label: 'Maquetas' }]} />
+      <div className="row-between" style={{ flexWrap: 'wrap', gap: 12 }}>
+        <Segmented label="Tipo" value={kind} onChange={setKind} options={[{ id: 'all', label: 'Todo' }, { id: 'image', label: 'Imágenes' }, { id: 'video', label: 'Videos' }, { id: 'mockup', label: 'Maquetas' }]} />
+        <div className="row" style={{ gap: 8 }}>
+          <label className="small muted" htmlFor="media-brand">Marca:</label>
+          <select id="media-brand" className="select" style={{ width: 'auto', minWidth: 160 }} value={brandId} onChange={(e) => setBrandId(e.target.value)}>
+            <option value="">Todas las marcas</option>
+            {(brands.data ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </div>
+      </div>
 
       {loading && !data ? (
         <div className="media-grid">{Array.from({ length: 6 }, (_, i) => <div key={i} className="skeleton" style={{ aspectRatio: '1' }} />)}</div>
@@ -105,6 +116,9 @@ export function MediaPage() {
                 </div>
                 <div className="media-card__body">
                   <span className="small truncate" style={{ fontWeight: 600 }} title={m.filename}>{m.filename}</span>
+                  <span className="xs badge" style={{ alignSelf: 'flex-start', marginTop: 2 }}>
+                    {brands.data?.find((b) => b.id === m.brandId)?.name ?? 'Sin marca asignada'}
+                  </span>
                   <span className="xs muted">{m.width && m.height ? `${m.width}×${m.height} · ` : ''}{bytes(m.size)}</span>
                   <div className="row" style={{ gap: 3 }} aria-label="Redes compatibles">
                     {ok.length ? ok.map((n) => <NetIcon key={n} network={n} size="sm" />) : <span className="xs" style={{ color: 'var(--c-warn)' }}>No cumple ninguna red</span>}

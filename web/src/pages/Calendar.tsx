@@ -8,7 +8,7 @@ import { useToast } from '../lib/toast.tsx';
 import { dayKey, fmtTime, partsInTz } from '../lib/format.ts';
 import { Button, EmptyState, ErrorState, Loading, NetIcon, PageHeader, StatusBadge } from '../components/ui.tsx';
 import { STATUS_LABELS } from '../../../shared/workflow.ts';
-import type { Post, PostStatus } from '../../../shared/types.ts';
+import type { Brand, Post, PostStatus } from '../../../shared/types.ts';
 
 const ZONES = ['America/Mexico_City', 'America/Monterrey', 'America/Cancun', 'America/Tijuana', 'America/Bogota', 'America/Lima', 'America/Santiago', 'America/Argentina/Buenos_Aires', 'America/New_York', 'America/Los_Angeles', 'Europe/Madrid', 'UTC'];
 const DOW = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
@@ -20,17 +20,19 @@ export function CalendarPage() {
   const today = partsInTz(new Date(), tz);
   const [ym, setYm] = useState({ y: today.y, m: today.m });
   const [hidden, setHidden] = useState<PostStatus[]>(['cancelled']);
+  const [brandId, setBrandId] = useState<string>('');
+  const brands = useApi<Brand[]>('/brands?archived=1');
   const posts = useApi<Post[]>('/posts');
 
   const byDay = useMemo(() => {
     const map = new Map<string, Post[]>();
     for (const p of posts.data ?? []) {
-      if (!p.plannedAt || hidden.includes(p.status)) continue;
+      if (!p.plannedAt || hidden.includes(p.status) || (brandId && p.brandId !== brandId)) continue;
       const k = dayKey(p.plannedAt, tz);
       map.set(k, [...(map.get(k) ?? []), p].sort((a, b) => a.plannedAt!.localeCompare(b.plannedAt!)));
     }
     return map;
-  }, [posts.data, tz, hidden]);
+  }, [posts.data, tz, hidden, brandId]);
 
   const first = new Date(Date.UTC(ym.y, ym.m - 1, 1));
   const lead = (first.getUTCDay() + 6) % 7;
@@ -52,8 +54,16 @@ export function CalendarPage() {
         title="Calendario"
         description="Fechas previstas y programadas. Los borradores con fecha prevista también aparecen aquí."
         actions={
-          <div className="row">
-            <label className="small muted" htmlFor="tz">Zona horaria</label>
+          <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+            <div className="row" style={{ gap: 6 }}>
+              <label className="small muted" htmlFor="cal-brand">Marca</label>
+              <select id="cal-brand" className="select" style={{ width: 'auto', minWidth: 140 }} value={brandId} onChange={(e) => setBrandId(e.target.value)}>
+                <option value="">Todas las marcas</option>
+                {(brands.data ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+            <div className="row" style={{ gap: 6 }}>
+              <label className="small muted" htmlFor="tz">Zona horaria</label>
             <select
               id="tz"
               className="select"
@@ -74,8 +84,9 @@ export function CalendarPage() {
               {[...new Set([tz, ...ZONES])].map((z) => <option key={z}>{z}</option>)}
             </select>
           </div>
-        }
-      />
+        </div>
+      }
+    />
 
       <div className="card cal-wrap">
         <div className="card__head">

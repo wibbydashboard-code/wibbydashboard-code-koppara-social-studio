@@ -22,6 +22,12 @@ function normalize(raw: Partial<PostInput>): PostInput {
     if (!acc) throw invalid('Uno de los destinos ya no existe.');
     if (seen.has(acc.id)) throw invalid('Hay un destino repetido.');
     seen.add(acc.id);
+    // Cada publicación debe pertenecer a una sola marca y solo dirigirse a cuentas asociadas a esa marca
+    if (acc.brandId !== brand.id) {
+      throw invalid(
+        `La cuenta ${acc.handle} no está asignada a la marca ${brand.name}. Las publicaciones solo pueden dirigirse a cuentas asociadas a su propia marca.`,
+      );
+    }
     const p = PLATFORMS[acc.network];
     const format = p.formats.some((f) => f.id === t.format) ? t.format : p.formats[0].id;
     return {
@@ -33,7 +39,14 @@ function normalize(raw: Partial<PostInput>): PostInput {
     };
   });
 
-  const mediaIds = (raw.mediaIds ?? []).map(String).filter((id) => mediaRepo.get(id));
+  const mediaIds = (raw.mediaIds ?? []).map(String).filter((id) => {
+    const item = mediaRepo.get(id);
+    if (!item) return false;
+    if (item.brandId && item.brandId !== brand.id) {
+      throw invalid(`El archivo de medios "${item.filename}" pertenece a otra marca.`);
+    }
+    return true;
+  });
   let plannedAt: string | null = null;
   if (raw.plannedAt) {
     const d = new Date(raw.plannedAt);

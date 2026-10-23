@@ -82,8 +82,7 @@ export function PostEditorPage() {
   const mediaById = useMemo(() => new Map((media.data ?? []).map((m) => [m.id, m])), [media.data]);
   const selectedMedia = d.mediaIds.map((m) => mediaById.get(m)).filter((m): m is MediaItem => Boolean(m));
   const brandAccounts = (accounts.data ?? []).filter((a) => a.brandId === d.brandId);
-  const otherAccounts = (accounts.data ?? []).filter((a) => !a.brandId);
-  const editable = !post || TRANSITIONS.save.from.includes(post.status);
+    const editable = !post || TRANSITIONS.save.from.includes(post.status);
   const canEdit = s.can('post.edit') && editable;
 
   const targetIssues = d.targets.map((t) => validateTarget({ baseText: d.baseText }, t, selectedMedia, brand));
@@ -271,35 +270,35 @@ export function PostEditorPage() {
               <span className="small muted">{d.targets.length} seleccionados</span>
             </div>
             <div className="card__body stack">
-              {brandAccounts.length + otherAccounts.length === 0 ? (
-                <EmptyState compact title="No hay cuentas conectadas" action={<Link to="/cuentas" className="btn btn--primary">Conectar cuenta oficial</Link>}>
-                  Conecta una cuenta oficial de Instagram o Facebook para seleccionar destinos de publicación.
+              {brandAccounts.length === 0 ? (
+                <EmptyState
+                  compact
+                  title={`No hay cuentas asignadas a ${brand ? brand.name : 'esta marca'}`}
+                  action={<Link to="/cuentas" className="btn btn--primary">Gestionar cuentas</Link>}
+                >
+                  Asigna o conecta cuentas oficiales para ${brand ? brand.name : 'la marca'}. Cada publicación solo puede dirigirse a cuentas sociales de su propia marca.
                 </EmptyState>
               ) : (
-                <>
-                  {[{ label: brand ? `Cuentas de ${brand.name}` : 'Cuentas de la marca', list: brandAccounts }, { label: 'Sin marca asignada', list: otherAccounts }]
-                    .filter((g) => g.list.length)
-                    .map((g) => (
-                      <div key={g.label} className="stack-sm">
-                        <span className="xs muted" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>{g.label}</span>
-                        <div className="dest-grid">
-                          {g.list.map((a) => {
-                            const on = d.targets.some((t) => t.accountId === a.id);
-                            return (
-                              <button key={a.id} type="button" className="dest" aria-pressed={on} disabled={!canEdit} onClick={() => toggleAccount(a)}>
-                                <NetIcon network={a.network} />
-                                <span style={{ minWidth: 0 }}>
-                                  <span className="small truncate" style={{ display: 'block', fontWeight: 600 }}>{a.handle}</span>
-                                  <span className="xs muted">{PLATFORMS[a.network].label}{a.mode === 'demo' ? ' · simulada' : ''}</span>
-                                </span>
-                                <span className="dest__check">{on && <Check aria-hidden />}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                </>
+                <div className="stack-sm">
+                  <span className="xs muted" style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                    Cuentas de {brand?.name ?? 'la marca'}
+                  </span>
+                  <div className="dest-grid">
+                    {brandAccounts.map((a) => {
+                      const on = d.targets.some((t) => t.accountId === a.id);
+                      return (
+                        <button key={a.id} type="button" className="dest" aria-pressed={on} disabled={!canEdit} onClick={() => toggleAccount(a)}>
+                          <NetIcon network={a.network} />
+                          <span style={{ minWidth: 0 }}>
+                            <span className="small truncate" style={{ display: 'block', fontWeight: 600 }}>{a.handle}</span>
+                            <span className="xs muted">{PLATFORMS[a.network].label}{a.mode === 'demo' ? ' · simulada' : ''}</span>
+                          </span>
+                          <span className="dest__check">{on && <Check aria-hidden />}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
 
               {d.targets.map((t, i) => {
