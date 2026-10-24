@@ -1,6 +1,5 @@
 import { Router, type Request } from 'express';
 import multer from 'multer';
-import { randomBytes } from 'node:crypto';
 import { config } from '../config.ts';
 import { brandsRepo } from '../repositories/brands.ts';
 import { accountsRepo } from '../repositories/accounts.ts';
@@ -14,6 +13,9 @@ import { mediaService } from '../services/media.ts';
 import { integrationStatuses, getAdapter } from '../integrations/registry.ts';
 import { loadDemoData, removeDemoData } from '../db/seed.ts';
 import { canStoreSecrets } from '../security/crypto.ts';
+import { oauthStateManager } from '../security/oauthState.ts';
+import { pendingOAuthManager } from '../security/pendingOAuth.ts';
+import type { MetaAdapter } from '../integrations/meta.ts';
 import { can, type PostAction } from '../../shared/workflow.ts';
 import { NETWORKS, PLATFORMS } from '../../shared/platforms.ts';
 import { conflict, forbidden, invalid, notFound } from './errors.ts';
@@ -133,30 +135,100 @@ export function apiRouter() {
     const u = currentUser(req);
     if (!can(u.role, 'account.manage')) throw forbidden();
     const network = req.params.network as Network;
-    if (!NETWORKS.includes(network)) throw invalid('Red no válida.');
+    if (!['facebook', 'instagram'].includes(network)) throw invalid('Red no soportada para OAuth directo.');
     const adapter = getAdapter(network);
     const st = adapter.status();
     if (!st.configured) {
       throw conflict(st.reason, st);
     }
-    const state = randomBytes(16).toString('hex');
+    const state = oauthStateManager.create(u.id, network);
     const url = await adapter.getAuthorizationUrl(state);
     res.json({ url, state });
   });
 
-  // Callback de OAuth para Meta
+  // Callback de OAuth para Meta (intercambia código y guarda páginas candidatas para selección explícita)
   r.get('/integrations/meta/callback', async (req, res) => {
     const code = String(req.query.code || '');
     const state = String(req.query.state || '');
-    if (!code) throw invalid('Código de autorización no recibido de Meta.');
+
+    if (!state) {
+      res.redirect(`/cuentas?error=${encodeURIComponent('Solicitud rechazada: falta el parámetro state de seguridad.')}`);
+      return;
+    }
+
+    const check = oauthStateManager.verifyAndConsume(state);
+    if (!check.valid || !check.entry) {
+      res.redirect(`/cuentas?error=${encodeURIComponent(`Solicitud rechazada por seguridad: ${check.reason}`)}`);
+      return;
+    }
+
+    const initiatingUser = usersRepo.get(check.entry.userId);
+    if (!initiatingUser || !can(initiatingUser.role, 'account.manage')) {
+      res.redirect(`/cuentas?error=${encodeURIComponent('Permiso insuficiente: se requiere permiso account.manage para vincular cuentas.')}`);
+      return;
+    }
+
+    if (!code) {
+      res.redirect(`/cuentas?error=${encodeURIComponent('Código de autorización no recibido de Meta.')}`);
+      return;
+    }
+
+    if (!canStoreSecrets()) {
+      res.redirect(`/cuentas?error=${encodeURIComponent('No se pueden almacenar las credenciales de Meta porque falta la variable APP_ENCRYPTION_KEY en el entorno. No se guardará nada en texto plano.')}`);
+      return;
+    }
+
     try {
-      const adapter = getAdapter('facebook');
-      await adapter.completeAuthorization(code, state);
-      res.redirect('/cuentas?connected=meta');
+      const net = (check.entry.network === 'instagram' ? 'instagram' : 'facebook') as 'facebook' | 'instagram';
+      const adapter = getAdapter(net) as MetaAdapter;
+      const pages = await adapter.fetchCandidatePages(code);
+
+      if (!pages.length) {
+        res.redirect(`/cuentas?error=${encodeURIComponent('No se encontraron páginas de Facebook administradas por este usuario en Meta.')}`);
+        return;
+      }
+
+      const sessionId = pendingOAuthManager.create(initiatingUser.id, net, pages);
+      res.redirect(`/cuentas?select_meta=${encodeURIComponent(sessionId)}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error al vincular con Meta.';
       res.redirect(`/cuentas?error=${encodeURIComponent(msg)}`);
     }
+  });
+
+  // Lista de páginas candidatas para selección explícita (sin tokens)
+  r.get('/integrations/meta/pending/:sessionId', (req, res) => {
+    const u = currentUser(req);
+    if (!can(u.role, 'account.manage')) throw forbidden();
+    const session = pendingOAuthManager.get(req.params.sessionId);
+    if (!session) throw notFound('La sesión de selección de Meta no existe o ha expirado.');
+    res.json({
+      network: session.network,
+      pages: session.pages.map((p) => ({
+        id: p.id,
+        name: p.name,
+        instagram: p.instagram ? { id: p.instagram.id, username: p.instagram.username, name: p.instagram.name } : null,
+      })),
+    });
+  });
+
+  // Confirmación explícita de vinculación de página o Instagram
+  r.post('/integrations/meta/confirm', (req, res) => {
+    const u = currentUser(req);
+    if (!can(u.role, 'account.manage')) throw forbidden();
+    const { sessionId, pageId, brandId } = req.body ?? {};
+    if (!sessionId || !pageId) throw invalid('Faltan sessionId o pageId.');
+
+    const session = pendingOAuthManager.consume(sessionId);
+    if (!session) throw invalid('Sesión de conexión inválida o expirada.');
+
+    const page = session.pages.find((p) => p.id === pageId);
+    if (!page) throw invalid('La página seleccionada no es válida.');
+
+    const resolvedBrandId = brandId && brandsRepo.get(brandId) ? brandId : null;
+    const adapter = getAdapter(session.network) as MetaAdapter;
+    const account = adapter.createAccountFromPage(session.network, page, resolvedBrandId);
+    res.status(201).json(account);
   });
 
   // Creación de cuenta demo (reservado para pruebas automatizadas)

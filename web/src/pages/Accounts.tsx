@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Lock, Trash2, ExternalLink, Link2, CheckCircle2 } from 'lucide-react';
 import { useApi } from '../lib/hooks.ts';
 import { useSession } from '../lib/session.tsx';
@@ -20,10 +21,38 @@ export function AccountsPage() {
   const accounts = useApi<SocialAccount[]>('/accounts');
   const brands = useApi<Brand[]>('/brands');
   const integ = useApi<Integrations>('/integrations');
-  const [connecting, setConnecting] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const selectMetaSessionId = params.get('select_meta');
+  const [connectingNet, setConnectingNet] = useState<'facebook' | 'instagram' | null>(null);
   const [info, setInfo] = useState<Network | null>(null);
   const [removing, setRemoving] = useState<SocialAccount | null>(null);
   const manage = s.can('account.manage');
+
+  interface CandidatePage {
+    id: string;
+    name: string;
+    instagram?: { id: string; username: string; name?: string } | null;
+  }
+  interface PendingMeta {
+    network: 'facebook' | 'instagram';
+    pages: CandidatePage[];
+  }
+  const pending = useApi<PendingMeta>(selectMetaSessionId ? `/integrations/meta/pending/${selectMetaSessionId}` : null, [selectMetaSessionId]);
+  const [selectedPageId, setSelectedPageId] = useState<string>('');
+  const [selectedBrandId, setSelectedBrandId] = useState<string>('');
+  const [confirming, setConfirming] = useState(false);
+
+  useEffect(() => {
+    if (pending.data?.pages?.length) {
+      setSelectedPageId(pending.data.pages[0].id);
+      // Preseleccionar marca correspondiente por nombre si coincide
+      const matchedBrand = brands.data?.find((b) =>
+        b.name.toLowerCase().includes(pending.data!.pages[0].name.toLowerCase()) ||
+        pending.data!.pages[0].name.toLowerCase().includes(b.name.toLowerCase())
+      );
+      if (matchedBrand) setSelectedBrandId(matchedBrand.id);
+    }
+  }, [pending.data, brands.data]);
 
   if ((accounts.loading && !accounts.data) || (integ.loading && !integ.data)) return <Loading />;
   if (accounts.error) return <ErrorState message={accounts.error.message} onRetry={accounts.reload} />;
@@ -31,17 +60,38 @@ export function AccountsPage() {
   const byNet = (n: Network) => (accounts.data ?? []).filter((a) => a.network === n);
   const status = (n: Network) => integ.data?.adapters.find((a) => a.network === n);
 
-  async function handleConnectMeta() {
-    setConnecting(true);
+  async function handleConnect(net: 'facebook' | 'instagram') {
+    setConnectingNet(net);
     try {
-      const res = await api.post<{ url: string }>('/integrations/facebook/auth-url');
+      const res = await api.post<{ url: string }>(`/integrations/${net}/auth-url`);
       if (res.url) {
         window.location.href = res.url;
       }
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : 'No se pudo iniciar la conexión con Meta.', 'error');
+      toast(e instanceof ApiError ? e.message : `No se pudo iniciar la conexión con ${PLATFORMS[net].label}.`, 'error');
     } finally {
-      setConnecting(false);
+      setConnectingNet(null);
+    }
+  }
+
+  async function handleConfirmMeta() {
+    if (!selectMetaSessionId || !selectedPageId) return;
+    setConfirming(true);
+    try {
+      await api.post('/integrations/meta/confirm', {
+        sessionId: selectMetaSessionId,
+        pageId: selectedPageId,
+        brandId: selectedBrandId || null,
+      });
+      toast(`Cuenta de ${pending.data?.network === 'facebook' ? 'Facebook' : 'Instagram'} vinculada exitosamente.`);
+      const nextParams = new URLSearchParams(params);
+      nextParams.delete('select_meta');
+      setParams(nextParams, { replace: true });
+      void accounts.reload();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Error al confirmar la vinculación.', 'error');
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -49,7 +99,7 @@ export function AccountsPage() {
     <>
       <PageHeader
         title="Cuentas oficiales"
-        description="Destinos de publicación para Koppara. Conecta las cuentas oficiales mediante Meta Graph API para publicar y programar directamente."
+        description="Destinos de publicación de tus marcas. Conecta las cuentas oficiales mediante Meta Graph API para publicar y programar directamente."
       />
 
       <Notice kind="info" title="Conexión oficial de redes sociales.">
@@ -145,22 +195,28 @@ export function AccountsPage() {
                 <Button size="sm" variant="ghost" onClick={() => setInfo(n)}>
                   Requisitos
                 </Button>
-                {manage && list.length === 0 && (
+                {manage && (
                   isMeta ? (
                     st?.configured ? (
-                      <Button size="sm" variant="primary" icon={<Link2 />} loading={connecting} onClick={handleConnectMeta}>
-                        Conectar con Meta
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        icon={<Link2 />}
+                        loading={connectingNet === n}
+                        onClick={() => handleConnect(n as 'facebook' | 'instagram')}
+                      >
+                        {list.length > 0 ? `Vincular otra (${p.label})` : `Conectar ${p.label}`}
                       </Button>
                     ) : (
                       <Button size="sm" icon={<Lock />} onClick={() => setInfo(n)}>
                         Configurar en .env
                       </Button>
                     )
-                  ) : (
+                  ) : list.length === 0 ? (
                     <Button size="sm" disabled icon={<Lock />} title={st?.reason}>
                       No configurada
                     </Button>
-                  )
+                  ) : null
                 )}
               </div>
             </article>
@@ -226,6 +282,125 @@ export function AccountsPage() {
         >
           Se desconectará la cuenta <strong>{removing.handle}</strong> de Koppara Social Studio. Para volver a publicar en ella, deberás realizar nuevamente el flujo de conexión.
         </Confirm>
+      )}
+
+      {selectMetaSessionId && (
+        <Modal
+          title={pending.data?.network === 'facebook' ? 'Seleccionar Página de Facebook' : 'Seleccionar Cuenta de Instagram'}
+          onClose={() => {
+            const nextParams = new URLSearchParams(params);
+            nextParams.delete('select_meta');
+            setParams(nextParams, { replace: true });
+          }}
+          footer={
+            <>
+              <Button
+                onClick={() => {
+                  const nextParams = new URLSearchParams(params);
+                  nextParams.delete('select_meta');
+                  setParams(nextParams, { replace: true });
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="primary"
+                loading={confirming}
+                disabled={!selectedPageId || pending.loading}
+                onClick={handleConfirmMeta}
+              >
+                Confirmar y vincular
+              </Button>
+            </>
+          }
+        >
+          {pending.loading && !pending.data ? (
+            <Loading />
+          ) : pending.error ? (
+            <ErrorState message={pending.error.message} />
+          ) : !pending.data?.pages.length ? (
+            <p className="small muted">No se encontraron páginas de Facebook administradas por este usuario.</p>
+          ) : (
+            <div className="stack">
+              <p className="small">
+                {pending.data.network === 'facebook'
+                  ? 'Elige explícitamente la página de Facebook que deseas conectar como destino de publicación:'
+                  : 'Elige la página de Facebook para vincular su cuenta profesional de Instagram asociada:'}
+              </p>
+
+              <div className="stack-sm">
+                {pending.data.pages.map((page) => {
+                  const isIg = pending.data!.network === 'instagram';
+                  const disabled = isIg && !page.instagram;
+                  const isChecked = selectedPageId === page.id;
+
+                  return (
+                    <label
+                      key={page.id}
+                      className="card card--interactive"
+                      style={{
+                        padding: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        cursor: disabled ? 'not-allowed' : 'pointer',
+                        opacity: disabled ? 0.6 : 1,
+                        border: isChecked ? '2px solid var(--c-primary)' : '1px solid var(--c-line)',
+                        background: isChecked ? 'var(--c-surface-2)' : 'var(--c-surface)',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="metaPage"
+                        value={page.id}
+                        disabled={disabled}
+                        checked={isChecked}
+                        onChange={() => setSelectedPageId(page.id)}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600 }}>{page.name}</div>
+                        {isIg ? (
+                          page.instagram ? (
+                            <div className="xs" style={{ color: 'var(--c-ok)', marginTop: 2 }}>
+                              Instagram vinculado: <strong>@{page.instagram.username}</strong>
+                              {page.instagram.name ? ` (${page.instagram.name})` : ''}
+                            </div>
+                          ) : (
+                            <div className="xs muted" style={{ marginTop: 2 }}>
+                              Sin cuenta profesional de Instagram asociada a esta página.
+                            </div>
+                          )
+                        ) : null}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="stack-sm" style={{ marginTop: 12, borderTop: '1px solid var(--c-line)', paddingTop: 12 }}>
+                <label className="small" htmlFor="assign-brand-meta" style={{ fontWeight: 600 }}>
+                  Asignar a la marca:
+                </label>
+                <select
+                  id="assign-brand-meta"
+                  className="select"
+                  value={selectedBrandId}
+                  onChange={(e) => setSelectedBrandId(e.target.value)}
+                >
+                  <option value="">Sin asignar (asignar más tarde)</option>
+                  {(brands.data ?? []).map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="xs muted">
+                  Podrás cambiar la marca asignada en cualquier momento desde la lista de cuentas.
+                </p>
+              </div>
+            </div>
+          )}
+        </Modal>
       )}
     </>
   );

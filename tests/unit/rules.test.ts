@@ -5,8 +5,10 @@ import { allowedActions, can, TRANSITIONS } from '../../shared/workflow.ts';
 import { NETWORKS } from '../../shared/platforms.ts';
 import { getAdapter, publishReal, IntegrationDisabledError } from '../../server/integrations/registry.ts';
 import { oauthStateManager } from '../../server/security/oauthState.ts';
+import { pendingOAuthManager, type MetaCandidatePage } from '../../server/security/pendingOAuth.ts';
 import { MetaAdapter } from '../../server/integrations/meta.ts';
 import { canStoreSecrets } from '../../server/security/crypto.ts';
+import { config } from '../../server/config.ts';
 import { brandsRepo } from '../../server/repositories/brands.ts';
 import { accountsRepo } from '../../server/repositories/accounts.ts';
 import { db } from '../../server/db/database.ts';
@@ -314,5 +316,100 @@ describe('arquitectura multimarca y aislamiento estricto de información', () =>
     accountsRepo.remove(accB.id);
     accountsRepo.remove(accUnassigned.id);
     db.prepare('DELETE FROM brands WHERE id IN (?, ?)').run(brandA.id, brandB.id);
+  });
+});
+
+describe('flujo OAuth de selección explícita de páginas e Instagram (Mentores Estratégicos)', () => {
+  it('permite iniciar la conexión independiente de Facebook e Instagram con su state correspondiente', async () => {
+    const fbAdapter = new MetaAdapter('facebook');
+    const igAdapter = new MetaAdapter('instagram');
+    expect(fbAdapter.network).toBe('facebook');
+    expect(igAdapter.network).toBe('instagram');
+
+    // Generar states criptográficos únicos para cada intento
+    const stateFb = oauthStateManager.create('user_admin', 'facebook');
+    const stateIg = oauthStateManager.create('user_admin', 'instagram');
+
+    expect(stateFb).not.toBe(stateIg);
+
+    // Ambas deben validar sus states correctamente
+    const checkFb = oauthStateManager.verifyAndConsume(stateFb);
+    expect(checkFb.valid).toBe(true);
+    expect(checkFb.entry?.network).toBe('facebook');
+
+    const checkIg = oauthStateManager.verifyAndConsume(stateIg);
+    expect(checkIg.valid).toBe(true);
+    expect(checkIg.entry?.network).toBe('instagram');
+  });
+
+  it('permite elegir explícitamente la página Mentores Estratégicos y vincular su Instagram profesional', () => {
+    const prevKey = config.encryptionKey;
+    config.encryptionKey = Buffer.alloc(32, 1).toString('base64');
+    const fbAdapter = new MetaAdapter('facebook');
+    const igAdapter = new MetaAdapter('instagram');
+
+    // Buscar la marca Mentores Estratégicos en la base de datos
+    const mentoresBrand = brandsRepo.list().find((b) => b.name === 'Mentores Estratégicos');
+    expect(mentoresBrand).toBeDefined();
+
+    // Páginas candidatas devueltas por Meta (simulación de respuesta OAuth)
+    const candidatePages: MetaCandidatePage[] = [
+      {
+        id: 'page_1001',
+        name: 'Página Personal No Relacionada',
+        accessToken: 'EAAB_token_otra_pagina',
+      },
+      {
+        id: 'page_1002',
+        name: 'Mentores Estratégicos',
+        accessToken: 'EAAB_token_mentores_estrategicos',
+        instagram: {
+          id: 'ig_2002',
+          username: 'mentores.estrategicos',
+          name: 'Mentores Estratégicos Oficial',
+        },
+      },
+    ];
+
+    // 1. Guardar en sesión pendiente
+    const sessionId = pendingOAuthManager.create('user_admin', 'facebook', candidatePages);
+    const session = pendingOAuthManager.get(sessionId);
+    expect(session).toBeDefined();
+    expect(session?.pages.length).toBe(2);
+
+    // 2. Elegir explícitamente la página "Mentores Estratégicos" (ID: page_1002)
+    const selectedPage = session?.pages.find((p) => p.name === 'Mentores Estratégicos')!;
+    expect(selectedPage).toBeDefined();
+    expect(selectedPage.id).toBe('page_1002');
+    expect(selectedPage.instagram?.username).toBe('mentores.estrategicos');
+
+    // 3. Crear y vincular cuenta oficial de Facebook asignándola a Mentores Estratégicos
+    const fbAccount = fbAdapter.createAccountFromPage('facebook', selectedPage, mentoresBrand?.id);
+    expect(fbAccount.network).toBe('facebook');
+    expect(fbAccount.handle).toBe('Mentores Estratégicos');
+    expect(fbAccount.brandId).toBe(mentoresBrand?.id);
+
+    // 4. Crear y vincular cuenta oficial de Instagram asignándola a Mentores Estratégicos
+    const igAccount = igAdapter.createAccountFromPage('instagram', selectedPage, mentoresBrand?.id);
+    expect(igAccount.network).toBe('instagram');
+    expect(igAccount.handle).toBe('@mentores.estrategicos');
+    expect(igAccount.displayName).toBe('Mentores Estratégicos Oficial');
+    expect(igAccount.brandId).toBe(mentoresBrand?.id);
+
+    // 5. Verificar que se puede reasignar o desasignar la marca desde Cuentas
+    accountsRepo.assignBrand(fbAccount.id, null);
+    expect(accountsRepo.get(fbAccount.id)?.brandId).toBeNull();
+    accountsRepo.assignBrand(fbAccount.id, mentoresBrand?.id ?? null);
+    expect(accountsRepo.get(fbAccount.id)?.brandId).toBe(mentoresBrand?.id);
+
+    // 6. Confirmar seguridad: ningún adaptador externo publica sin credenciales habilitadas
+    expect(fbAdapter.status().enabled).toBe(false);
+    expect(igAdapter.status().enabled).toBe(false);
+
+    // Limpieza de datos de prueba (sin tocar Koppara ni Mentores en sí)
+    accountsRepo.remove(fbAccount.id);
+    accountsRepo.remove(igAccount.id);
+    pendingOAuthManager.consume(sessionId);
+    config.encryptionKey = prevKey;
   });
 });

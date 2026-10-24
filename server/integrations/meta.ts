@@ -1,8 +1,11 @@
 import { config } from '../config.ts';
 import { canStoreSecrets, decrypt, encrypt } from '../security/crypto.ts';
 import { accountsRepo } from '../repositories/accounts.ts';
+import type { MetaCandidatePage } from '../security/pendingOAuth.ts';
 import { IntegrationDisabledError, type AdapterStatus, type PublishRequest, type PublishResult, type SocialAdapter } from './types.ts';
 import type { SocialAccount } from '../../shared/types.ts';
+
+export type { MetaCandidatePage };
 
 /**
  * Adaptador oficial de Meta (Facebook Pages e Instagram Business Content Publishing API).
@@ -56,7 +59,7 @@ export class MetaAdapter implements SocialAdapter {
     return `https://www.facebook.com/${config.metaGraphVersion}/dialog/oauth?client_id=${config.metaAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}&scope=${encodeURIComponent(scopes)}&response_type=code`;
   }
 
-  async completeAuthorization(code: string, _state: string): Promise<SocialAccount> {
+  async fetchCandidatePages(code: string): Promise<MetaCandidatePage[]> {
     if (!canStoreSecrets()) {
       throw new Error(
         'No se pueden almacenar las credenciales de Meta porque falta la variable APP_ENCRYPTION_KEY en el entorno. No se guardará nada en texto plano.',
@@ -93,36 +96,65 @@ export class MetaAdapter implements SocialAdapter {
       throw new Error('No se encontraron páginas de Facebook administradas por este usuario.');
     }
 
-    const page = pagesData.data[0];
-    if (this.network === 'facebook') {
+    return pagesData.data.map((p) => ({
+      id: p.id,
+      name: p.name,
+      accessToken: p.access_token,
+      instagram: p.instagram_business_account
+        ? {
+            id: p.instagram_business_account.id,
+            username: p.instagram_business_account.username,
+            name: p.instagram_business_account.name,
+          }
+        : undefined,
+    }));
+  }
+
+  createAccountFromPage(
+    network: 'facebook' | 'instagram',
+    page: MetaCandidatePage,
+    brandId: string | null = null,
+  ): SocialAccount {
+    if (!canStoreSecrets()) {
+      throw new Error(
+        'No se pueden almacenar las credenciales de Meta porque falta la variable APP_ENCRYPTION_KEY en el entorno. No se guardará nada en texto plano.',
+      );
+    }
+
+    if (network === 'facebook') {
       const account = accountsRepo.create({
         network: 'facebook',
         handle: page.name,
         displayName: page.name,
         accountType: 'Página oficial de Facebook',
-        brandId: null,
+        brandId,
         mode: 'real',
         isDemo: false,
       });
-      accountsRepo.saveCredentials(account.id, encrypt(page.access_token));
+      accountsRepo.saveCredentials(account.id, encrypt(page.accessToken));
       return account;
     } else {
-      const ig = page.instagram_business_account;
+      const ig = page.instagram;
       if (!ig) {
-        throw new Error('La página de Facebook no tiene vinculada una cuenta profesional de Instagram.');
+        throw new Error(`La página "${page.name}" no tiene vinculada una cuenta profesional de Instagram.`);
       }
       const account = accountsRepo.create({
         network: 'instagram',
         handle: `@${ig.username}`,
         displayName: ig.name || ig.username,
         accountType: 'Instagram Business oficial',
-        brandId: null,
+        brandId,
         mode: 'real',
         isDemo: false,
       });
-      accountsRepo.saveCredentials(account.id, encrypt(page.access_token));
+      accountsRepo.saveCredentials(account.id, encrypt(page.accessToken));
       return account;
     }
+  }
+
+  async completeAuthorization(code: string, _state: string): Promise<SocialAccount> {
+    const pages = await this.fetchCandidatePages(code);
+    return this.createAccountFromPage(this.network, pages[0]);
   }
 
   async publish(req: PublishRequest): Promise<PublishResult> {
